@@ -14,8 +14,14 @@ const {
     ContextMenuCommandBuilder,
     ApplicationCommandType,
     AttachmentBuilder,
+    Collection,
+    ModalBuilder,
+    TextInputBuilder,
+    TextInputStyle,
 } = require("discord.js");
-const { createCanvas, loadImage } = require("canvas");
+const Discord = require("discord.js");
+const { CaptchaGenerator } = require("captcha-canvas"); //require package here
+const { createCanvas } = require("canvas");
 const {
     mongodb,
     token,
@@ -26,6 +32,7 @@ const {
     githubtoken,
     repository,
     branch,
+    SafeBrowsingAPI_Key,
 } = require("./config.json");
 const si = require("systeminformation");
 const os = require("os");
@@ -36,6 +43,7 @@ const moment = require("moment");
 const startTime = moment();
 const { exec } = require("child_process");
 const axios = require("axios");
+const { verify } = require("crypto");
 const rest = new REST({ version: "10" }).setToken(token);
 
 const client = new Client({
@@ -59,6 +67,11 @@ const commands = [
         )
         .addSubcommand((subcommand) =>
             subcommand.setName("bot").setDescription("Display bot info.")
+        )
+        .addSubcommand((subcommand) =>
+            subcommand
+                .setName("verifiy")
+                .setDescription("Display verifiy settings.")
         )
         .addSubcommand((subcommand) =>
             subcommand
@@ -110,6 +123,59 @@ const commands = [
         )
         .addSubcommand((subcommand) =>
             subcommand
+                .setName("verification_setup")
+                .setDescription(
+                    "Add spam blocking functionality to the server."
+                )
+                .addChannelOption((option) =>
+                    option
+                        .setName("verificationlocation")
+                        .setDescription("Select the channel to output logs.")
+                        .setRequired(true)
+                )
+                .addIntegerOption((option) =>
+                    option
+                        .setName("timelimit")
+                        .setDescription("Enter the number of min to set.")
+                        .setRequired(true)
+                )
+                .addStringOption((option) =>
+                    option
+                        .setName("action")
+                        .setDescription(
+                            "Select the action to take. (Kick or Ban)"
+                        )
+                        .addChoices({
+                            name: "Kick",
+                            value: "Verification_kick",
+                        })
+                        .addChoices({ name: "Ban", value: "Verification_ban" })
+                        .setRequired(true)
+                )
+                .addStringOption((option) =>
+                    option
+                        .setName("type")
+                        .setDescription(
+                            "Select the action to take. (Kick or Ban)"
+                        )
+                        .addChoices({
+                            name: "Web(Developing)",
+                            value: "Verification_web",
+                        })
+                        .addChoices({
+                            name: "Discord CAPTCHA",
+                            value: "Verification_discord",
+                        })
+                        .setRequired(true)
+                )
+        )
+        .addSubcommand((subcommand) =>
+            subcommand
+                .setName("verification_disable")
+                .setDescription("Verification disable")
+        )
+        .addSubcommand((subcommand) =>
+            subcommand
                 .setName("addwhitelist")
                 .setDescription("Add whitelist a user")
                 .addUserOption((option) =>
@@ -123,51 +189,51 @@ const commands = [
         .addSubcommand((subcommand) =>
             subcommand
                 .setName("timeout")
-                .setDescription("유저를 타임아웃시킵니다.")
+                .setDescription("Timeout the user.")
                 .addUserOption((option) =>
                     option
                         .setName("user")
-                        .setDescription("타임아웃시킬 유저")
+                        .setDescription("User to timeout")
                         .setRequired(true)
                 )
                 .addStringOption((option) =>
                     option
                         .setName("duration")
-                        .setDescription("타임아웃 시간")
+                        .setDescription("Timeout duration")
                         .setRequired(true)
                 )
                 .addStringOption((option) =>
-                    option.setName("reason").setDescription("타임아웃 이유")
+                    option.setName("reason").setDescription("Timeout reason")
                 )
         )
         .addSubcommand((subcommand) =>
             subcommand
                 .setName("kick")
-                .setDescription("유저를 킥시킵니다.")
+                .setDescription("Kick the user.")
                 .addUserOption((option) =>
                     option
                         .setName("user")
-                        .setDescription("킥할 유저")
+                        .setDescription("User to kick")
                         .setRequired(true)
                 )
 
                 .addStringOption((option) =>
-                    option.setName("reason").setDescription("킥할 이유")
+                    option.setName("reason").setDescription("Kick reason")
                 )
         )
         .addSubcommand((subcommand) =>
             subcommand
                 .setName("ban")
-                .setDescription("유저를 차단시킵니다.")
+                .setDescription("Ban the user.")
                 .addUserOption((option) =>
                     option
                         .setName("user")
-                        .setDescription("차단할 유저")
+                        .setDescription("User to ban")
                         .setRequired(true)
                 )
 
                 .addStringOption((option) =>
-                    option.setName("reason").setDescription("차단할 이유")
+                    option.setName("reason").setDescription("Ban reason")
                 )
         )
         .addSubcommand((subcommand) =>
@@ -249,7 +315,9 @@ const commands = [
         .addSubcommand((subcommand) =>
             subcommand
                 .setName("spamming")
-                .setDescription("Block user to spamming.(Developing)")
+                .setDescription(
+                    "Block user to spamming.When spamming is detected, a 5-minute timeout is automatically given."
+                )
                 .addStringOption((option) =>
                     option
                         .setName("status")
@@ -282,6 +350,10 @@ const commands = [
                         .addChoices({
                             name: "Only discord invite link",
                             value: "link_action_discord",
+                        })
+                        .addChoices({
+                            name: "Scan",
+                            value: "link_action_scan",
                         })
                         .addChoices({
                             name: "Disable",
@@ -331,36 +403,8 @@ const commands = [
                 )
         ),
 
-    new SlashCommandBuilder()
-        .setName("utility")
-        .setDescription("Utility")
+    new SlashCommandBuilder().setName("utility").setDescription("Utility"),
 
-        .addSubcommand((subcommand) =>
-            subcommand
-                .setName("keyboard")
-                .setDescription("keyboard")
-                .addStringOption((option) =>
-                    option
-                        .setName("translate")
-                        .setDescription("translate status.")
-
-                        .addChoices({
-                            name: "Korean->English",
-                            value: "Korean->English",
-                        })
-                        .addChoices({
-                            name: "English->Korean",
-                            value: "English->Korean",
-                        })
-                        .setRequired(true)
-                )
-                .addStringOption((option) =>
-                    option
-                        .setName("text")
-                        .setDescription("enter text")
-                        .setRequired(true)
-                )
-        ),
     new ContextMenuCommandBuilder()
         .setName("Information")
         .setType(ApplicationCommandType.User),
@@ -437,13 +481,13 @@ const admincommand = [
         )
         .addSubcommand((subcommand) =>
             subcommand
-                .setName("test")
-                .setDescription("test command")
+                .setName("eval")
+                .setDescription("eval code")
 
                 .addStringOption((option) =>
                     option
-                        .setName("command")
-                        .setDescription("enter command")
+                        .setName("code")
+                        .setDescription("enter code")
                         .setRequired(true)
                 )
         ),
@@ -468,8 +512,8 @@ const admincommand = [
 client.once("ready", async () => {
     const endTime = moment();
     const loginTime = moment.duration(endTime.diff(startTime)).asSeconds();
-    infochannel(`Login successful. Took ${loginTime} seconds.`);
-    mongoose
+    infochannel(`Bot is ready. Took ${loginTime} seconds.`);
+    await mongoose
         .connect(mongodb, {})
         .then(() => {
             infochannel("Connected Database");
@@ -478,14 +522,15 @@ client.once("ready", async () => {
             errorlog("Connect Database fail", error.message);
         });
     let guild_counter = 0;
-    client.guilds.cache.forEach(async (guild) => {
+    client.guilds.cache.forEach(() => {
         guild_counter++;
     });
+    infochannel(`Discord.js Version : ${Discord.version}`);
     infochannel(`Guild total : ${guild_counter}`);
     try {
         infochannel("Started refreshing application (/) commands.");
 
-        await rest.put(Routes.applicationCommands(clientid), {
+        rest.put(Routes.applicationCommands(clientid), {
             body: commands,
         });
         infochannel("Successfully reloaded application (/) commands.");
@@ -500,10 +545,8 @@ client.once("ready", async () => {
     });
 });
 function infochannel(content) {
-    const channel = client.channels.cache.get(logchannelid);
     const endTime = moment();
     const currentTime = endTime.format("YYYY-MM-DD HH:mm:ss");
-    channel.send(`[${currentTime}] INFO: ${content}`);
     console.log(`[${currentTime}] INFO: ${content}`);
 }
 function sleep(ms) {
@@ -556,6 +599,7 @@ client.on("interactionCreate", async (interaction) => {
                     },
                 }
             );
+            const guildMember = await interaction.guild.members.fetch(user.id);
             const userData = await userResponse.json();
 
             let banner;
@@ -660,68 +704,40 @@ client.on("interactionCreate", async (interaction) => {
         }
         return;
     }
-    if (commandoptionname === "spamming") {
-        if (!checkPermissions(interaction)) {
-            return;
-        }
-        const guildSettings = await getGuildSettings(guild.id);
-        if (!guildSettings) {
-            const errorMessage =
-                language === "ko"
-                    ? "서버 설정을 찾을 수 없습니다. 먼저 로그 채널을 설정하십시오.\n</setup:1217828757801533443>"
-                    : "Server settings not found. Please set up the log channel first.\n</setup:1217828757801533443>";
-
-            await interaction.reply({
-                content: errorMessage,
-                ephemeral: true,
-            });
-            return;
-        }
-
-        let status = options.getString("status").toLowerCase();
-        if (status === "spamming_status_on") {
-            interaction.reply("도배 방지가 활성화되었습니다");
-            status = "on";
-        } else if (status === "spamming_status비_off") {
-            interaction.reply("도배 방지가 비활성화되었습니다.");
-            status = "off";
-        }
-        await updateGuildSettings(
-            guild.id,
-            null,
-            null,
-            null,
-            null,
-            null,
-            status,
-            null,
-            null
-        );
-    }
     if (commandoptionname === "deletehistory") {
         if (!checkPermissions(interaction)) {
             return;
         }
         const guildSettings = await getGuildSettings(guild.id);
         if (!guildSettings) {
-            const errorMessage =
-                language === "ko"
-                    ? "서버 설정을 찾을 수 없습니다. 먼저 로그 채널을 설정하십시오.\n</setup:1217828757801533443>"
-                    : "Server settings not found. Please set up the log channel first.\n</setup:1217828757801533443>";
-
-            await interaction.reply({
-                content: errorMessage,
-                ephemeral: true,
-            });
+            guildnull(interaction);
             return;
         }
 
         let status = options.getString("status").toLowerCase();
         if (status === "delete_status_on") {
-            interaction.reply("삭제로그가 활성화되었습니다");
+            const embed = new EmbedBuilder()
+                .setColor(0x128afa)
+                .setTitle(
+                    language === "ko"
+                        ? "메세지 삭제로그가 활성화 되었습니다."
+                        : `Message deletion log has been activated`
+                );
+            interaction.reply({
+                embeds: [embed],
+            });
             status = "on";
         } else if (status === "delete_status_off") {
-            interaction.reply("삭제로그가 비활성화되었습니다.");
+            const embed = new EmbedBuilder()
+                .setColor(0x128afa)
+                .setTitle(
+                    language === "ko"
+                        ? "메세지 삭제로그가 비활성화되었습니다."
+                        : `Message deletion log has been disabled`
+                );
+            interaction.reply({
+                embeds: [embed],
+            });
             status = "off";
         }
         await updateGuildSettings(
@@ -746,10 +762,25 @@ client.on("interactionCreate", async (interaction) => {
             interaction.options.getString("reason") || "No reason provide";
         try {
             await user.timeout(timeoutDuration, reason);
-            interaction.reply(`Timeout ${user} ${durationString}`);
+            const embed = new EmbedBuilder()
+                .setColor(0x128afa)
+                .setTitle(`User timeouted`)
+                .setFields(
+                    { name: `User`, value: `${user}`, inline: true },
+                    { name: `Reason`, value: `${reason}`, inline: true },
+                    {
+                        name: `Duration`,
+                        value: `${durationString}`,
+                        inline: true,
+                    }
+                );
+            interaction.reply({ embeds: [embed] });
         } catch (err) {
-            interaction.reply(err.message || "Something went wrong");
-            return;
+            const embed = new EmbedBuilder()
+                .setTitle("Error")
+                .setColor(0xff0000)
+                .setDescription(`${err.message || "Something went wrong"}`);
+            return interaction.reply({ embeds: [embed] });
         }
     }
     if (commandoptionname === "kick") {
@@ -759,10 +790,20 @@ client.on("interactionCreate", async (interaction) => {
             interaction.options.getString("reason") || "No reason provide";
         try {
             await user.kick(reason);
-            interaction.reply(`User ${user} kicked`);
+            const embed = new EmbedBuilder()
+                .setColor(0x128afa)
+                .setTitle(`User kicked`)
+                .setFields(
+                    { name: `User`, value: `${user}`, inline: true },
+                    { name: `Reason`, value: `${reason}`, inline: true }
+                );
+            interaction.reply({ embeds: [embed] });
         } catch (err) {
-            interaction.reply(err.message || "Something went wrong");
-            return;
+            const embed = new EmbedBuilder()
+                .setTitle("Error")
+                .setColor(0xff0000)
+                .setDescription(`${err.message || "Something went wrong"}`);
+            return interaction.reply({ embeds: [embed] });
         }
     }
     if (commandoptionname === "ban") {
@@ -772,10 +813,20 @@ client.on("interactionCreate", async (interaction) => {
             interaction.options.getString("reason") || "No reason provide";
         try {
             await user.ban(reason);
-            interaction.reply(`User ${user} banned`);
+            const embed = new EmbedBuilder()
+                .setColor(0x128afa)
+                .setTitle(`User banned`)
+                .setFields(
+                    { name: `User`, value: `${user}`, inline: true },
+                    { name: `Reason`, value: `${reason}`, inline: true }
+                );
+            interaction.reply({ embeds: [embed] });
         } catch (err) {
-            interaction.reply(err.message || "Something went wrong");
-            return;
+            const embed = new EmbedBuilder()
+                .setTitle("Error")
+                .setColor(0xff0000)
+                .setDescription(`${err.message || "Something went wrong"}`);
+            return interaction.reply({ embeds: [embed] });
         }
     }
     if (commandoptionname === "changehistory") {
@@ -784,24 +835,34 @@ client.on("interactionCreate", async (interaction) => {
         }
         const guildSettings = await getGuildSettings(guild.id);
         if (!guildSettings) {
-            const errorMessage =
-                language === "ko"
-                    ? "서버 설정을 찾을 수 없습니다. 먼저 로그 채널을 설정하십시오.\n</setup:1217828757801533443>"
-                    : "Server settings not found. Please set up the log channel first.\n</setup:1217828757801533443>";
-
-            await interaction.reply({
-                content: errorMessage,
-                ephemeral: true,
-            });
+            guildnull(interaction);
             return;
         }
 
         let status = options.getString("status").toLowerCase();
         if (status === "change_status_on") {
-            interaction.reply("변경로그가 활성화되었습니다");
+            const embed = new EmbedBuilder()
+                .setColor(0x128afa)
+                .setTitle(
+                    language === "ko"
+                        ? "메세지 변경로그가 활성화되었습니다."
+                        : `Message change log has been activated`
+                );
+            interaction.reply({
+                embeds: [embed],
+            });
             status = "on";
         } else if (status === "change_status_off") {
-            interaction.reply("변경로그가 비활성화되었습니다.");
+            const embed = new EmbedBuilder()
+                .setColor(0x128afa)
+                .setTitle(
+                    language === "ko"
+                        ? "메세지 변경로그가 비활성화되었습니다."
+                        : `Message change log has been disabled`
+                );
+            interaction.reply({
+                embeds: [embed],
+            });
             status = "off";
         }
         await updateGuildSettings(
@@ -886,25 +947,35 @@ client.on("interactionCreate", async (interaction) => {
         }
         const guildSettings = await getGuildSettings(guild.id);
         if (!guildSettings) {
-            const errorMessage =
-                language === "ko"
-                    ? "서버 설정을 찾을 수 없습니다. 먼저 로그 채널을 설정하십시오.\n</setup:1217828757801533443>"
-                    : "Server settings not found. Please set up the log channel first.\n</setup:1217828757801533443>";
-
-            await interaction.reply({
-                content: errorMessage,
-                ephemeral: true,
-            });
+            guildnull(interaction);
             return;
         }
 
         let status = options.getString("status").toLowerCase();
         if (status === "spamming_status_on") {
-            interaction.reply("도배 방지가 활성화되었습니다");
             status = "on";
+            const embed = new EmbedBuilder()
+                .setColor(0x128afa)
+                .setTitle(
+                    language === "ko"
+                        ? "도배방지 기능이 활성화되었습니다."
+                        : `Anti-spam is activated`
+                );
+            interaction.reply({
+                embeds: [embed],
+            });
         } else if (status === "spamming_status_off") {
-            interaction.reply("도배 방지가 비활성화되었습니다.");
             status = "off";
+            const embed = new EmbedBuilder()
+                .setColor(0x128afa)
+                .setTitle(
+                    language === "ko"
+                        ? "도배방지 기능이 비활성화되었습니다."
+                        : `Anti-spam is disabled`
+                );
+            interaction.reply({
+                embeds: [embed],
+            });
         }
         await updateGuildSettings(
             guild.id,
@@ -925,29 +996,58 @@ client.on("interactionCreate", async (interaction) => {
         }
         const guildSettings = await getGuildSettings(guild.id);
         if (!guildSettings) {
-            const errorMessage =
-                language === "ko"
-                    ? "서버 설정을 찾을 수 없습니다. 먼저 로그 채널을 설정하십시오.\n</setup:1217828757801533443>"
-                    : "Server settings not found. Please set up the log channel first.\n</setup:1217828757801533443>";
-
-            await interaction.reply({
-                content: errorMessage,
-                ephemeral: true,
-            });
+            guildnull(interaction);
             return;
         }
 
         let action = options.getString("action").toLowerCase();
         if (action === "link_action_all") {
-            interaction.reply("링크 보안이 모든링크로 설정되었습니다.");
+            const embed = new EmbedBuilder()
+                .setColor(0x128afa)
+                .setTitle(
+                    language === "ko"
+                        ? "링크보안이 모든링크로 설정되었습니다."
+                        : `Link security is set to All Links.`
+                );
+            interaction.reply({
+                embeds: [embed],
+            });
             action = "all";
         } else if (action === "link_action_discord") {
-            interaction.reply(
-                "링크 보안이 디스코드 초대링크로 설정되었습니다."
-            );
+            const embed = new EmbedBuilder()
+                .setColor(0x128afa)
+                .setTitle(
+                    language === "ko"
+                        ? "링크보안이 디스코드 초대링크로 설정되었습니다."
+                        : `Link security is set to Discord invitation link.`
+                );
+            interaction.reply({
+                embeds: [embed],
+            });
             action = "discord";
+        } else if (action === "link_action_scan") {
+            const embed = new EmbedBuilder()
+                .setColor(0x128afa)
+                .setTitle(
+                    language === "ko"
+                        ? "링크보안이 스캔으로 설정되었습니다."
+                        : `Link security is set to scan link.`
+                );
+            interaction.reply({
+                embeds: [embed],
+            });
+            action = "scan";
         } else if (action === "link_action_disable") {
-            interaction.reply("링크 보안이 Disable로 설정되었습니다.");
+            const embed = new EmbedBuilder()
+                .setColor(0x128afa)
+                .setTitle(
+                    language === "ko"
+                        ? "링크보안이 꺼졌습니다."
+                        : `Link security is turned off.`
+                );
+            interaction.reply({
+                embeds: [embed],
+            });
             action = "disable";
         }
 
@@ -1119,31 +1219,25 @@ client.on("interactionCreate", async (interaction) => {
             interaction.reply({ embeds: [embed] });
         } catch (error) {
             console.error(error);
-            if (language === "ko") {
-                interaction.reply(
-                    "메모리 정보를 가져오는 중 오류가 발생했습니다."
-                );
-            } else {
-                interaction.reply(
-                    "An error occurred while fetching memory information."
-                );
-            }
         }
     }
-    if (commandoptionname === "check") {
+    if (commandoptionname === "checkuser") {
         let newMembers = [];
         const messagedefer = await interaction.deferReply();
 
         const guildSettings = await getGuildSettings(guild.id);
 
         if (!guildSettings) {
-            const errorMessage =
-                language === "ko"
-                    ? "서버 설정을 찾을 수 없습니다. 먼저 로그 채널을 설정하십시오.\n</setup:1217828757801533443>"
-                    : "Server settings not found. Please set up the log channel first.\n</setup:1217828757801533443>";
-
+            const embed = new EmbedBuilder()
+                .setColor(0xff0000)
+                .setTitle(`Server settings not found`)
+                .setDescription(
+                    language === "ko"
+                        ? "서버 설정을 찾을 수 없습니다. 먼저 로그 채널을 설정하십시오.\n</management setup:1224629739877306430>"
+                        : "Server settings not found. Please set up the log channel first.\n</management setup:1224629739877306430>"
+                );
             await messagedefer.edit({
-                content: errorMessage,
+                embeds: [embed],
                 ephemeral: true,
             });
             return;
@@ -1165,31 +1259,50 @@ client.on("interactionCreate", async (interaction) => {
 
                 if (newMembers.length > 0) {
                     const message = newMembers.join("\n");
-                    const joinMessage =
-                        language === "ko"
-                            ? `다음 멤버들의 계정 생성일이 ${configuredMonths}개월 미만입니다.\n${message}`
-                            : `The following members' account creation dates are less than ${configuredMonths} month(s) ago:\n${message}`;
-                    await messagedefer.edit(joinMessage);
-                } else {
-                    const noJoinMessage =
-                        language === "ko"
-                            ? `지난 ${configuredMonths}달 동안 가입한 멤버가 없습니다.`
-                            : `No members joined in the last ${configuredMonths} month(s).`;
+                    const embed = new EmbedBuilder()
+                        .setColor(0x128afa)
+                        .setTitle(`Result`)
+                        .setDescription(
+                            language === "ko"
+                                ? `다음 멤버들의 계정 생성일이 ${configuredMonths}개월 미만입니다.\n${message}`
+                                : `The following members' account creation dates are less than ${configuredMonths} month(s) ago:\n${message}`
+                        );
 
-                    await messagedefer.edit(noJoinMessage);
+                    await messagedefer.edit({ embeds: [embed] });
+                } else {
+                    const embed = new EmbedBuilder()
+                        .setColor(0x128afa)
+                        .setTitle(`Result`)
+                        .setDescription(
+                            language === "ko"
+                                ? `지난 ${configuredMonths}달 동안 가입한 멤버가 없습니다.`
+                                : `No members joined in the last ${configuredMonths} month(s).`
+                        );
+
+                    await messagedefer.edit({ embeds: [embed] });
                 }
             })
             .catch(console.error);
     }
-    if (commandoptionname === "test") {
-        const command = options.getString("command");
+    if (commandoptionname === "eval") {
+        const command = options.getString("code");
         if (checkOwners(interaction)) {
             try {
                 const result = await eval(command);
                 const embed = new EmbedBuilder()
-                    .setColor("#00ff00")
+                    .setColor("#128AFA")
                     .setTitle("Evaluation Result")
-                    .setDescription(`\`\`\`${result}\`\`\``)
+                    .addFields(
+                        {
+                            name: "Input",
+                            value: `\`\`\`javascript\n${command}\`\`\``,
+                        },
+                        {
+                            name: "Output",
+                            value: `\`\`\`javascript\n${result}\`\`\``,
+                        }
+                    )
+
                     .setTimestamp();
 
                 interaction.reply({ embeds: [embed] });
@@ -1197,7 +1310,16 @@ client.on("interactionCreate", async (interaction) => {
                 const embed = new EmbedBuilder()
                     .setColor("#ff0000")
                     .setTitle("Evaluation Error")
-                    .setDescription(`\`\`\`${error}\`\`\``)
+                    .addFields(
+                        {
+                            name: "Input",
+                            value: `\`\`\`javascript\n${command}\`\`\``,
+                        },
+                        {
+                            name: "Output",
+                            value: `\`\`\`javascript\n${error}\`\`\``,
+                        }
+                    )
                     .setTimestamp();
                 interaction.reply({ embeds: [embed] });
             }
@@ -1262,15 +1384,23 @@ client.on("interactionCreate", async (interaction) => {
                 }
             });
 
+            const embed = new EmbedBuilder()
+                .setColor(0x128afa)
+                .setTitle(
+                    language === "ko"
+                        ? `${messages.size}개의 메세지를 삭제하였습니다.`
+                        : `Deleted ${messages.size} messages.`
+                );
             interaction.reply({
-                content: `Deleted ${messages.size} messages.`,
-                ephemeral: true,
+                embeds: [embed],
             });
         } catch (error) {
             console.error("Error deleting messages:", error);
+            const embed = new EmbedBuilder()
+                .setColor(0xff0000)
+                .setTitle(`An error occurred while deleting messages.`);
             interaction.reply({
-                content: "An error occurred while deleting messages.",
-                ephemeral: true,
+                embeds: [embed],
             });
         }
     }
@@ -1278,7 +1408,16 @@ client.on("interactionCreate", async (interaction) => {
     if (commandoptionname === "officialblacklist") {
         const blacklistedUsers = await BlacklistUser.find();
         const blacklistedServers = await BlacklistServer.find();
-
+        if (interaction.user.id.includes(adminsid)) {
+            const embed = new EmbedBuilder()
+                .setColor(0xff0000)
+                .setTitle("You don't have permission.");
+            interaction.reply({
+                embeds: [embed],
+                ephemeral: true,
+            });
+            return;
+        }
         let userList =
             language === "ko"
                 ? "## 블랙리스트된 사용자:\n"
@@ -1305,11 +1444,16 @@ client.on("interactionCreate", async (interaction) => {
         const reason = options.getString("reason");
 
         if (!user || !reason) {
-            await interaction.reply({
-                content:
+            const embed = new EmbedBuilder()
+                .setColor(0xff0000)
+                .setTitle(`Report`)
+                .setDescription(
                     language === "ko"
                         ? "사용자와 이유를 모두 제공해주세요."
-                        : "Please provide both user and reason.",
+                        : "Please provide both user and reason."
+                );
+            await interaction.reply({
+                embeds: [embed],
                 ephemeral: true,
             });
             return;
@@ -1320,12 +1464,18 @@ client.on("interactionCreate", async (interaction) => {
         ])
             ? "Admin"
             : "User";
-        const reportReason =
-            language === "ko"
-                ? `사용자 ${user}이(가) ${reason}으로 신고되었습니다.`
-                : `User ${user} was reported for ${reason}.`;
-
-        await interaction.reply({ content: reportReason, ephemeral: true });
+        const embed = new EmbedBuilder()
+            .setColor(0x128afa)
+            .setTitle(`Report`)
+            .setDescription(
+                language === "ko"
+                    ? `사용자 ${user}이(가) ${reason}으로 신고되었습니다.`
+                    : `User ${user} was reported for ${reason}.`
+            );
+        await interaction.reply({
+            embeds: [embed],
+            ephemeral: true,
+        });
         const channel = client.channels.cache.get(errorchannelid);
         const time = Math.floor(Date.now() / 1000);
         const errorEmbed = new EmbedBuilder()
@@ -1374,31 +1524,36 @@ client.on("interactionCreate", async (interaction) => {
                 !guildSettings.blockedUsers ||
                 guildSettings.blockedUsers.length === 0
             ) {
-                await interaction.reply({
-                    content:
+                const embed = new EmbedBuilder()
+                    .setColor(0x128afa)
+                    .setTitle(`whitelist`)
+                    .setDescription(
                         language === "ko"
                             ? "화이트리스트가 없습니다."
-                            : "No Whitelist Users.",
-                    ephemeral: true,
+                            : "No Whitelist Users."
+                    );
+                interaction.reply({
+                    embeds: [embed],
                 });
                 return;
             }
             const blockedUsers = guildSettings.blockedUsers
                 .map((userId) => `<@${userId}>`)
                 .join(", ");
-            await interaction.reply({
-                content:
+
+            const embed = new EmbedBuilder()
+                .setColor(0x128afa)
+                .setTitle(`whitelist`)
+                .setDescription(
                     language === "ko"
-                        ? `Whitelist: ${blockedUsers}`
-                        : `Whitelist: ${blockedUsers}`,
-                ephemeral: true,
+                        ? `화이트리스트: ${blockedUsers}`
+                        : `Whitelist: ${blockedUsers}`
+                );
+            interaction.reply({
+                embeds: [embed],
             });
         } catch (error) {
             console.error("Error listing Whitelist users:", error);
-            await interaction.reply({
-                content: language === "ko" ? "Error" : "An Error",
-                ephemeral: true,
-            });
         }
     }
     if (commandoptionname === "addwhitelist") {
@@ -1409,23 +1564,22 @@ client.on("interactionCreate", async (interaction) => {
 
         const guildSettings = await getGuildSettings(guildId);
         if (!guildSettings) {
-            interaction.reply({
-                content:
-                    language === "ko"
-                        ? "서버 설정을 찾을 수 없습니다. 먼저 로그 채널을 설정하십시오.\n</setup:1217828757801533443>"
-                        : "Server settings not found. Please set up the log channel first.\n</setup:1217828757801533443>",
-                ephemeral: true,
-            });
+            guildnull(interaction);
             return;
         }
 
         const user = options.getUser("user");
         await addBlockedUser(guildId, user.id);
-        interaction.reply({
-            content:
+        const embed = new EmbedBuilder()
+            .setColor(0x128afa)
+            .setTitle(`Add to whitelist`)
+            .setDescription(
                 language === "ko"
-                    ? `${user}님을 화이트 리스트에 등록했습니다..`
-                    : `Add ${user}.`,
+                    ? `${user}가 화이트리스트로 등록되었습니다.`
+                    : `${user}has been added to the white list.`
+            );
+        interaction.reply({
+            embeds: [embed],
         });
     }
     if (commandoptionname === "removewhitelist") {
@@ -1436,22 +1590,22 @@ client.on("interactionCreate", async (interaction) => {
 
         const guildSettings = await getGuildSettings(guildId);
         if (!guildSettings) {
-            interaction.reply({
-                content:
-                    language === "ko"
-                        ? "서버 설정을 찾을 수 없습니다. 먼저 로그 채널을 설정하십시오.\n</setup:1217828757801533443>"
-                        : "Server settings not found. Please set up the log channel first.\n</setup:1217828757801533443>",
-                ephemeral: true,
-            });
+            guildnull(interaction);
             return;
         }
         const user = options.getUser("user");
         await removeBlockedUser(guildId, user.id);
-        interaction.reply({
-            content:
+
+        const embed = new EmbedBuilder()
+            .setColor(0x128afa)
+            .setTitle("Remove from whitelist")
+            .setDescription(
                 language === "ko"
                     ? `${user}님을 화이트리스트에서 제거 했습니다.`
-                    : `Removewhitelist ${user}.`,
+                    : `${user}has been removed from the whitelist.`
+            );
+        interaction.reply({
+            embeds: [embed],
         });
     }
     if (commandoptionname === "autoaction") {
@@ -1464,27 +1618,10 @@ client.on("interactionCreate", async (interaction) => {
 
         const guildSettings = await getGuildSettings(guildId);
         if (!guildSettings) {
-            interaction.reply({
-                content:
-                    language === "ko"
-                        ? "서버 설정을 찾을 수 없습니다. 먼저 로그 채널을 설정하십시오.\n</setup:1217828757801533443>"
-                        : "Server settings not found. Please set up the log channel first.\n</setup:1217828757801533443>",
-                ephemeral: true,
-            });
+            guildnull(interaction);
             return;
         }
         const logChannelId = guildSettings.logChannelId;
-
-        if (!logChannelId) {
-            interaction.reply({
-                content:
-                    language === "ko"
-                        ? "자동 조치를 설정하기 전에 먼저 로그 채널을 설정하십시오.\n</setup:1217828757801533443>"
-                        : "Before setting up automatic actions, please set up the log channel first.\n</setup:1217828757801533443>",
-                ephemeral: true,
-            });
-            return;
-        }
 
         try {
             await updateGuildSettings(
@@ -1497,8 +1634,10 @@ client.on("interactionCreate", async (interaction) => {
                 null,
                 null
             );
-            interaction.reply({
-                content:
+
+            const embed = new EmbedBuilder()
+                .setColor(0x128afa)
+                .setTitle(
                     language === "ko"
                         ? `자동 조치가 ${
                               status === "On"
@@ -1507,28 +1646,31 @@ client.on("interactionCreate", async (interaction) => {
                           }`
                         : `Automatic action is ${
                               status === "On" ? "enabled" : "disabled"
-                          }.`,
+                          }.`
+                );
+            interaction.reply({
+                embeds: [embed],
             });
         } catch (error) {
             console.error("Error updating guild settings:", error);
-            interaction.reply({
-                content:
+            const embed = new EmbedBuilder()
+                .setColor(0xff0000)
+                .setTitle(`Error`)
+                .setDescription(
                     language === "ko"
                         ? "자동 조치 상태를 설정하는 중 오류가 발생했습니다."
-                        : "An error occurred while setting the automatic action status.",
+                        : "An error occurred while setting the automatic action status."
+                );
+            interaction.reply({
+                embeds: [embed],
+                ephemeral: true,
             });
         }
     }
     if (commandoptionname === "server") {
         const guildSettings = await getGuildSettings(interaction.guild.id);
         if (!guildSettings) {
-            interaction.reply({
-                content:
-                    language === "ko"
-                        ? "서버 설정을 찾을 수 없습니다. 먼저 로그 채널을 설정하십시오.\n</setup:1217828757801533443>"
-                        : "Server settings not found. Please set up the log channel first.\n</setup:1217828757801533443>",
-                ephemeral: true,
-            });
+            guildnull(interaction);
             return;
         }
         let ri = guildSettings.roleId;
@@ -1573,16 +1715,51 @@ client.on("interactionCreate", async (interaction) => {
 
         interaction.reply({ embeds: [exampleEmbed] });
     }
+    if (commandoptionname === "verifiy") {
+        const guildSettings = await getGuildSettings(interaction.guild.id);
+        if (!guildSettings) {
+            guildnull(interaction);
+            return;
+        }
+        const exampleEmbed = new EmbedBuilder()
+            .setColor(0x0099ff)
+            .setTitle(language === "ko" ? "정보" : "Info")
+
+            .addFields(
+                {
+                    name: language === "ko" ? "인증 상태" : "Verifiy Status",
+                    value: `${guildSettings.verify}`,
+                    inline: true,
+                },
+                {
+                    name: language === "ko" ? "시간제한" : "Time limit",
+                    value: `${guildSettings.verifylimit}min`,
+                    inline: true,
+                },
+                {
+                    name: language === "ko" ? "인증 유형" : "Verifiy Type",
+                    value: `${guildSettings.verifytype}`,
+                    inline: true,
+                },
+                {
+                    name:
+                        language === "ko" ? "자동 조치 유형" : "Verifiy Action",
+                    value: `${guildSettings.verifyaction}`,
+                    inline: true,
+                },
+                {
+                    name: language === "ko" ? "역할" : "Role",
+                    value: `<@&${guildSettings.verifyrole}>`,
+                    inline: true,
+                }
+            );
+
+        interaction.reply({ embeds: [exampleEmbed] });
+    }
     if (commandoptionname === "add-ons") {
         const guildSettings = await getGuildSettings(interaction.guild.id);
         if (!guildSettings) {
-            interaction.reply({
-                content:
-                    language === "ko"
-                        ? "서버 설정을 찾을 수 없습니다. 먼저 로그 채널을 설정하십시오.\n</setup:1217828757801533443>"
-                        : "Server settings not found. Please set up the log channel first.\n</setup:1217828757801533443>",
-                ephemeral: true,
-            });
+            guildnull(interaction);
             return;
         }
 
@@ -1621,22 +1798,198 @@ client.on("interactionCreate", async (interaction) => {
 
         interaction.reply({ embeds: [exampleEmbed] });
     }
-    if (commandoptionname === "keyboard") {
-        const type = options.getString("translate").toLowerCase();
-        const text = options.getString("text");
-        let result = "";
-        if (type === "korean->english") {
-            result = translateToEnglish(text);
-        }
-        if (type === "english->korean") {
-            result = combineHangul(translateToKorean(text));
-        }
-        interaction.reply(result);
-    }
-    if (commandoptionname === "setup") {
+
+    if (commandoptionname === "verification_disable") {
         if (!checkPermissions(interaction)) {
             return;
         }
+        const guildId = interaction.guildId;
+        const guildSettings = await getGuildSettings(guildId);
+        if (!guildSettings) {
+            guildnull(interaction);
+            return;
+        }
+        await updateGuildSettings(
+            guildId,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            "off",
+            null,
+            null,
+            null,
+            null
+        );
+        const embed = new EmbedBuilder()
+            .setColor(0x128afa)
+            .setTitle(
+                language === "ko"
+                    ? "인증을 비활성화했습니다."
+                    : "Verification has been disabled."
+            );
+        interaction.reply({
+            embeds: [embed],
+        });
+    }
+    if (commandoptionname === "verification_setup") {
+        if (!checkPermissions(interaction)) {
+            return;
+        }
+        const messagedefer = await interaction.deferReply();
+        const guildId = interaction.guildId;
+        const location = options.getChannel("verificationlocation");
+        const min = options.getInteger("timelimit");
+        let action = options.getString("action").toLowerCase();
+        let type = options.getString("type").toLowerCase();
+        let guildSettings = await getGuildSettings(guildId);
+        if (!guildSettings) return guildnull(interaction);
+        switch (action) {
+            case "verification_kick":
+                action = "Kick";
+                break;
+            case "verification_kick":
+                action = "Ban";
+                break;
+        }
+        switch (type) {
+            case "verification_web":
+                type = "Web";
+                break;
+            case "verification_discord":
+                type = "Discord";
+                break;
+        }
+        if (type === "Web") {
+            const embeda = new EmbedBuilder()
+                .setColor(0x128afa)
+                .setTitle("Comming Soon!");
+            await messagedefer.edit({
+                embeds: [embeda],
+            });
+            return;
+        }
+        const embed = new EmbedBuilder()
+            .setColor(0x0099ff)
+            .setTitle("Verification required")
+            .setDescription(
+                `To gain access to \`${interaction.guild.name}\` you need to prove you are a human by completing a captcha. Click the button below to get started!`
+            );
+        const row1 = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setLabel("Verify")
+                .setStyle(ButtonStyle.Primary)
+                .setCustomId(`verification`)
+        );
+        location.send({ embeds: [embed], components: [row1] });
+        if (
+            !guildSettings.verifyrole ||
+            !interaction.guild.roles.cache.get(guildSettings.verifyrole)
+        ) {
+            await interaction.guild.roles
+                .create({
+                    name: "unverified",
+                    permissions: [],
+                })
+                .then((createdRole) => {
+                    updateGuildSettings(
+                        guildId,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        null,
+                        createdRole.id,
+                        null,
+                        null
+                    );
+                    interaction.guild.channels.cache.forEach(
+                        async (channel) => {
+                            if (
+                                channel.id !== location.id &&
+                                channel.type !== 4
+                            ) {
+                                if (channel.permissionOverwrites) {
+                                    channel.permissionOverwrites.edit(
+                                        createdRole.id,
+                                        {
+                                            ViewChannel: false,
+                                        }
+                                    );
+                                }
+                            }
+                        }
+                    );
+                });
+        }
+        updateGuildSettings(
+            guildId,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            null,
+            "on",
+            min,
+            null,
+            action,
+            type
+        );
+        await sleep(1000);
+        guildSettings = await getGuildSettings(guildId);
+        const embeda = new EmbedBuilder()
+            .setColor(0x128afa)
+            .setTitle("Verify")
+            .addFields(
+                {
+                    name: language === "ko" ? "채널" : `Channel`,
+                    value: `${location}`,
+                    inline: true,
+                },
+                {
+                    name: language === "ko" ? "시간 제한" : `Time limit`,
+                    value: `${guildSettings.verifylimit}min`,
+                    inline: true,
+                    한,
+                },
+                {
+                    name: language === "ko" ? "인증 액션" : `Action`,
+                    value: `${guildSettings.verifyaction}`,
+                    inline: true,
+                },
+                {
+                    name: language === "ko" ? "인증 유형" : `Type`,
+                    value: `${guildSettings.verifytype}`,
+                    inline: true,
+                },
+                {
+                    name: language === "ko" ? "인증 역할" : `Role`,
+                    value: `<@&${guildSettings.verifyrole}>`,
+                    inline: true,
+                }
+            );
+        await messagedefer.edit({
+            embeds: [embeda],
+        });
+    }
+
+    if (commandoptionname === "setup") {
+        if (!checkPermissions(interaction)) return;
 
         const guildId = interaction.guildId;
         const channelId = options.getChannel("channel");
@@ -1664,7 +2017,7 @@ client.on("interactionCreate", async (interaction) => {
             ) {
                 interaction.guild.roles
                     .create({
-                        name: language === "ko" ? "뮤트" : "Muted",
+                        name: "Muted",
                         permissions: [],
                     })
                     .then((createdRole) => {
@@ -1785,15 +2138,22 @@ client.on("interactionCreate", async (interaction) => {
                 .then((user) => {
                     const guild = client.guilds.cache.get(interaction.guild.id);
                     guild.members.unban(user);
+                    const embed = new EmbedBuilder()
+                        .setColor(0xff0000)
+                        .setTitle(`Unbanned`)
+                        .addFields({ name: "User", value: user });
                     interaction.reply({
-                        content: `Unbanned ${user}.`,
+                        embeds: [embed],
                         ephemeral: true,
                     });
                 })
                 .catch((error) => {
                     console.error("Error fetching user:", error);
+                    const embed = new EmbedBuilder()
+                        .setColor(0xff0000)
+                        .setTitle(`User not found.`);
                     interaction.reply({
-                        content: "User not found.",
+                        embeds: [embed],
                         ephemeral: true,
                     });
                 });
@@ -1819,8 +2179,12 @@ client.on("interactionCreate", async (interaction) => {
             client.users
                 .fetch(userId)
                 .then((user) => {
+                    const embed = new EmbedBuilder()
+                        .setColor(0xff0000)
+                        .setTitle(`User blocked`)
+                        .addFields({ name: "User", value: user });
                     interaction.reply({
-                        content: `Blocked ${user}.`,
+                        embeds: [embed],
                         ephemeral: true,
                     });
                     addUserToBlacklist(user.id, "3", customId.split("_")[2]);
@@ -1842,8 +2206,11 @@ client.on("interactionCreate", async (interaction) => {
                 })
                 .catch((error) => {
                     console.error("Error fetching user:", error);
+                    const embed = new EmbedBuilder()
+                        .setColor(0xff0000)
+                        .setTitle(`User not found.`);
                     interaction.reply({
-                        content: "User not found.",
+                        embeds: [embed],
                         ephemeral: true,
                     });
                 });
@@ -1858,8 +2225,11 @@ client.on("interactionCreate", async (interaction) => {
             client.users
                 .fetch(userId)
                 .then((user) => {
+                    const embed = new EmbedBuilder()
+                        .setColor(0xff0000)
+                        .setTitle(`Denyed`);
                     interaction.reply({
-                        content: `Denyed.`,
+                        embeds: [embed],
                         ephemeral: true,
                     });
                     const row = new ActionRowBuilder().addComponents(
@@ -1880,23 +2250,164 @@ client.on("interactionCreate", async (interaction) => {
                 })
                 .catch((error) => {
                     console.error("Error fetching user:", error);
+                    const embed = new EmbedBuilder()
+                        .setColor(0xff0000)
+                        .setTitle(`User not found.`);
                     interaction.reply({
-                        content: "User not found.",
+                        embeds: [embed],
                         ephemeral: true,
                     });
                 });
         } else if (customId.includes("whitelist_")) {
             const userId = customId.split("_")[1];
             await addBlockedUser(interaction.guildId, userId);
+            const embed = new EmbedBuilder()
+                .setColor(0x128afa)
+                .setTitle(`Add to whitelist`)
+                .setDescription(`${user}has been added to the white list.`);
             interaction.reply({
-                content: `Add ${user}.`,
-                ephemeral: true,
+                embeds: [embed],
             });
-            const channelId = interaction.channelId;
-            const channel = await interaction.guild.channels.fetch(channelId);
-            const message = await channel.messages.fetch(
-                interaction.message.id
+        } else if (customId === "verification") {
+            const guildSettings = await getGuildSettings(interaction.guild.id);
+
+            if (!interaction.member.roles.cache.has(guildSettings.verifyrole)) {
+                const embed = new EmbedBuilder()
+
+                    .setTitle(
+                        language === "ko"
+                            ? "이미 인증되었습니다."
+                            : "You are already verified."
+                    )
+                    .setColor(0x128afa);
+                return interaction.reply({
+                    embeds: [embed],
+                    ephemeral: true,
+                });
+            }
+
+            const image = captchagenerat();
+            const file = new AttachmentBuilder(image);
+            const embed = new EmbedBuilder()
+                .setTitle("Captcha")
+                .setColor(0x128afa)
+                .setImage(`attachment://${image}`);
+            const row = new ActionRowBuilder().addComponents(
+                new ButtonBuilder()
+                    .setCustomId(`verificationmodal_${image}`)
+                    .setLabel("verification")
+                    .setStyle(ButtonStyle.Primary)
             );
+
+            interaction
+                .reply({
+                    embeds: [embed],
+                    files: [file],
+                    components: [row],
+                    ephemeral: true,
+                })
+                .then(() => {
+                    fs.unlink(image, async (err) => {
+                        if (err) {
+                            return console.error(
+                                "Error while deleting file",
+                                err
+                            );
+                        }
+                    });
+                });
+        } else if (customId.startsWith("verificationmodal_")) {
+            const filename = customId.split("_")[1];
+            const code = filename.split(".")[0];
+            const modal = new ModalBuilder()
+                .setCustomId(`verificationmodalopen_${code}`)
+                .setTitle("Captcha");
+            const codei = new TextInputBuilder()
+                .setCustomId("codeinput")
+                .setLabel("Code")
+                .setStyle(TextInputStyle.Short);
+
+            const firstActionRow = new ActionRowBuilder().addComponents(codei);
+            modal.addComponents(firstActionRow);
+            await interaction.showModal(modal);
+        } else if (customId.startsWith("verificationmodalopen_")) {
+            const guildSettings = await getGuildSettings(interaction.guild.id);
+
+            const currrentcode = customId.split("_")[1];
+            const code = interaction.fields.getTextInputValue("codeinput");
+            const channelID = guildSettings.logChannelId;
+            const channel = client.channels.cache.get(channelID);
+            if (currrentcode === code) {
+                const embed = new EmbedBuilder()
+                    .setColor(0x128afa)
+                    .setTitle(`Verification`)
+                    .setDescription(`Verification Success`);
+                interaction.reply({
+                    embeds: [embed],
+                    ephemeral: true,
+                });
+
+                const role = guild.roles.cache.get(guildSettings.verifyrole);
+                await interaction.member.roles.remove(role);
+                const avatarURL = interaction.user.displayAvatarURL({
+                    size: 256,
+                    dynamic: true,
+                });
+                const embeda = new EmbedBuilder()
+                    .setTitle("Captcha Success")
+                    .setColor(0x0099ff)
+                    .addFields(
+                        {
+                            name: "User",
+                            value: `<@${interaction.user.id}>`,
+                            inline: true,
+                        },
+
+                        {
+                            name: "Type",
+                            value: `${guildSettings.verifytype}`,
+                            inline: true,
+                        }
+                    )
+                    .setFooter({
+                        text: `ID:${interaction.user.id}`,
+                        iconURL: avatarURL,
+                    });
+                channel.send({ embeds: [embeda] });
+            } else {
+                const embed = new EmbedBuilder()
+                    .setColor(0xff0000)
+                    .setTitle(`Verification`)
+                    .setDescription(`Verification Failed`);
+                interaction.reply({
+                    embeds: [embed],
+                    ephemeral: true,
+                });
+                const avatarURL = interaction.user.displayAvatarURL({
+                    size: 256,
+                    dynamic: true,
+                });
+                const embeda = new EmbedBuilder()
+                    .setTitle("Captcha Fail")
+                    .setColor(0xff0000)
+                    .addFields(
+                        {
+                            name: "User",
+                            value: `<@${interaction.user.id}>`,
+                            inline: true,
+                        },
+                        {
+                            name: "Reason",
+                            value: `The captcha code does not match.`,
+                            inline: true,
+                        }
+                    )
+                    .setFooter({
+                        text: `ID:${interaction.user.id}`,
+                        iconURL: avatarURL,
+                    });
+                channel.send({ embeds: [embeda] });
+            }
         }
     }
 });
@@ -1956,6 +2467,8 @@ client.on("messageDelete", async (deletedMessage) => {
 
 client.on("messageUpdate", async (oldMessage, newMessage) => {
     if (oldMessage.author.bot) return;
+    if (oldMessage === newMessage) return;
+    if (oldMessage == newMessage) return;
 
     const guildSettings = await getGuildSettings(oldMessage.guild.id);
     if (!guildSettings) {
@@ -2005,11 +2518,13 @@ client.on("guildMemberAdd", async (member) => {
     const blacklistedUser = await BlacklistUser.findOne({
         userId: member.user.id,
     });
+    if (member.user.bot) return;
 
     const guildSettings = await getGuildSettings(member.guild.id);
     if (!guildSettings) {
         return;
     }
+
     const channelID = guildSettings.logChannelId;
     if (!channelID) {
         console.error(
@@ -2134,6 +2649,77 @@ client.on("guildMemberAdd", async (member) => {
     } else if (type === "Pass") {
         channel.send({ embeds: [blockEmbed] });
     }
+    if (!guildSettings.verify === null || guildSettings.verify !== "off") {
+        const guild = await client.guilds.fetch(member.guild.id);
+        const rolemember = await guild.members.fetch(member.id);
+        const role = guild.roles.cache.get(guildSettings.verifyrole);
+        if (role) {
+            await rolemember.roles.add(role).then(async () => {
+                const avatarURL = member.user.displayAvatarURL({
+                    size: 256,
+                    dynamic: true,
+                });
+                const embed = new EmbedBuilder()
+                    .setTitle("Captcha Sent")
+                    .setColor(0x0099ff)
+                    .addFields(
+                        {
+                            name: "User",
+                            value: `<@${member.user.id}>`,
+                            inline: true,
+                        },
+                        {
+                            name: "Type",
+                            value: `${guildSettings.verifytype}`,
+                            inline: true,
+                        }
+                    )
+                    .setFooter({
+                        text: `ID:${member.user.id}`,
+                        iconURL: avatarURL,
+                    });
+                channel.send({ embeds: [embed] });
+            });
+        }
+    }
+    setTimeout(async () => {
+        const guild = await client.guilds.fetch(member.guild.id);
+        const rolemember = await guild.members.fetch(member.id);
+
+        if (!rolemember) {
+            return;
+        }
+
+        // 특정 역할을 확인합니다.
+        const role = guild.roles.cache.get(guildSettings.verifyrole);
+
+        if (!role) return;
+
+        // 특정 역할을 가지고 있는지 확인합니다.
+        if (rolemember.roles.cache.has(role.id)) {
+            if (guildSettings.verifyaction === "Kick") {
+                await rolemember.kick();
+            } else if (guildSettings.verifyaction === "Ban") {
+                await rolemember.ban();
+            }
+            const avatarURL = member.user.displayAvatarURL({
+                size: 256,
+                dynamic: true,
+            });
+            const embed = new EmbedBuilder()
+                .setTitle("Time limit reached")
+                .setColor(0xeb0000)
+                .addFields(
+                    { name: "User", value: `<@${member.user.id}>` },
+                    { name: "Action", value: `${guildSettings.verifyaction}` }
+                )
+                .setFooter({
+                    text: `ID:${member.user.id}`,
+                    iconURL: avatarURL,
+                });
+            channel.send({ embeds: [embed] });
+        }
+    }, guildSettings.verifylimit * 60 * 1000); // 분을 밀리초로 변환합니다.
 });
 client.on("error", async (error) => {
     errorlog("caughtException", error.message);
@@ -2161,271 +2747,76 @@ process.on("uncaughtException", (err) => {
             { name: "Time", value: `<t:${time}:F>` },
             { name: "Error Message", value: `\`\`\`${err.message}\`\`\`` },
         ]);
-    channel.send({ embeds: [errorEmbed] });
+    try {
+        channel.send({ embeds: [errorEmbed] });
+    } catch {
+        console.log(err);
+    }
 });
-function translateToEnglish(text) {
-    const engLayout = {
-        ㅂ: "q",
-        ㅈ: "w",
-        ㄷ: "e",
-        ㄱ: "r",
-        ㅅ: "t",
-        ㅛ: "y",
-        ㅕ: "u",
-        ㅑ: "i",
-        ㅐ: "o",
-        ㅔ: "p",
-        ㅁ: "a",
-        ㄴ: "s",
-        ㅇ: "d",
-        ㄹ: "f",
-        ㅎ: "g",
-        ㅗ: "h",
-        ㅓ: "j",
-        ㅏ: "k",
-        ㅣ: "l",
-        ㅋ: "z",
-        ㅌ: "x",
-        ㅊ: "c",
-        ㅍ: "v",
-        ㅠ: "b",
-        ㅜ: "n",
-        ㅡ: "m",
-        ㅃ: "Q",
-        ㅉ: "W",
-        ㄸ: "E",
-        ㄲ: "R",
-        ㅆ: "T",
-        ㅒ: "O",
-        ㅖ: "P",
-    };
-
-    let result = "";
-    for (let i = 0; i < text.length; i++) {
-        const char = text[i];
-        if (engLayout[char]) {
-            result += engLayout[char];
-        } else {
-            result += char;
-        }
-    }
-    return result;
-}
-function combineHangul(hangulString) {
-    const INITIAL_CONSONANTS = {
-        ㄱ: 0,
-        ㄲ: 1,
-        ㄴ: 2,
-        ㄷ: 3,
-        ㄸ: 4,
-        ㄹ: 5,
-        ㅁ: 6,
-        ㅂ: 7,
-        ㅃ: 8,
-        ㅅ: 9,
-        ㅆ: 10,
-        ㅇ: 11,
-        ㅈ: 12,
-        ㅉ: 13,
-        ㅊ: 14,
-        ㅋ: 15,
-        ㅌ: 16,
-        ㅍ: 17,
-        ㅎ: 18,
-    };
-
-    const MEDIAL_VOWELS = {
-        ㅏ: 0,
-        ㅐ: 1,
-        ㅑ: 2,
-        ㅒ: 3,
-        ㅓ: 4,
-        ㅔ: 5,
-        ㅕ: 6,
-        ㅖ: 7,
-        ㅗ: 8,
-        ㅘ: 9,
-        ㅙ: 10,
-        ㅚ: 11,
-        ㅛ: 12,
-        ㅜ: 13,
-        ㅝ: 14,
-        ㅞ: 15,
-        ㅟ: 16,
-        ㅠ: 17,
-        ㅡ: 18,
-        ㅢ: 19,
-        ㅣ: 20,
-    };
-
-    const FINAL_CONSONANTS = {
-        "": 0,
-        ㄱ: 1,
-        ㄲ: 2,
-        ㄳ: 3,
-        ㄴ: 4,
-        ㄵ: 5,
-        ㄶ: 6,
-        ㄷ: 7,
-        ㄹ: 8,
-        ㄺ: 9,
-        ㄻ: 10,
-        ㄼ: 11,
-        ㄽ: 12,
-        ㄾ: 13,
-        ㄿ: 14,
-        ㅀ: 15,
-        ㅁ: 16,
-        ㅂ: 17,
-        ㅄ: 18,
-        ㅅ: 19,
-        ㅆ: 20,
-        ㅇ: 21,
-        ㅈ: 22,
-        ㅊ: 23,
-        ㅋ: 24,
-        ㅌ: 25,
-        ㅍ: 26,
-        ㅎ: 27,
-    };
-
-    const HANGUL_BASE = 44032;
-
-    let result = "";
-    let buffer = "";
-
-    for (let i = 0; i < hangulString.length; i++) {
-        const char = hangulString[i];
-        if (INITIAL_CONSONANTS[char] !== undefined) {
-            const medial = MEDIAL_VOWELS[hangulString[++i]] || 0;
-            const final = FINAL_CONSONANTS[hangulString[++i]] || 0;
-            buffer += String.fromCharCode(
-                HANGUL_BASE +
-                    INITIAL_CONSONANTS[char] * 21 * 28 +
-                    medial * 28 +
-                    final
-            );
-        } else {
-            result += buffer;
-            buffer = "";
-            result += char;
-        }
-    }
-
-    return result + buffer;
-}
-function translateToKorean(text) {
-    const korLayout = {
-        q: "ㅂ",
-        w: "ㅈ",
-        e: "ㄷ",
-        r: "ㄱ",
-        t: "ㅅ",
-        y: "ㅛ",
-        u: "ㅕ",
-        i: "ㅑ",
-        o: "ㅐ",
-        p: "ㅔ",
-        a: "ㅁ",
-        s: "ㄴ",
-        d: "ㅇ",
-        f: "ㄹ",
-        g: "ㅎ",
-        h: "ㅗ",
-        j: "ㅓ",
-        k: "ㅏ",
-        l: "ㅣ",
-        z: "ㅋ",
-        x: "ㅌ",
-        c: "ㅊ",
-        v: "ㅍ",
-        b: "ㅠ",
-        n: "ㅜ",
-        m: "ㅡ",
-        Q: "ㅃ",
-        W: "ㅉ",
-        E: "ㄸ",
-        R: "ㄲ",
-        T: "ㅆ",
-        O: "ㅒ",
-        P: "ㅖ",
-        A: "ㅁ",
-        S: "ㄴ",
-        D: "ㅇ",
-        F: "ㄹ",
-        G: "ㅎ",
-        H: "ㅗ",
-        J: "ㅓ",
-        K: "ㅏ",
-        L: "ㅣ",
-        Z: "ㅋ",
-        X: "ㅌ",
-        C: "ㅊ",
-        V: "ㅍ",
-        B: "ㅠ",
-        N: "ㅜ",
-        M: "ㅡ",
-    };
-
-    let result = "";
-    for (let i = 0; i < text.length; i++) {
-        const char = text[i];
-        if (korLayout[char]) {
-            result += korLayout[char];
-        } else {
-            result += char;
-        }
-    }
-    return result;
-}
+const spamUsers = new Map();
+const SPAM_INTERVAL = 2000;
+const SPAM_THRESHOLD = 5;
+const MUTE_DURATION = 300_000;
 
 client.on("messageCreate", async (message) => {
-    if (message.content.startsWith("!error:")) {
-        if (checkOwners(message)) {
-            message.channel.send(`${message.content.split(":")[1]}`);
-            throw new Error(message.content.split(":")[1]);
-        }
-    }
-
-    //     const leaveKeyword = message.content.split(" ")[1];
-    //     client.guilds.cache.forEach((guild) => {
-    //         if (guild.name.includes(leaveKeyword)) {
-    //             guild
-    //                 .leave()
-    //                 .then((leftGuild) =>
-    //                     console.log(
-    //                         `Left the guild ${leftGuild.name} because it contains the keyword '${leaveKeyword}'`
-    //                     )
-    //                 )
-    //                 .catch(console.error);
-    //         }
-    //     });
-    // }
     if (message.author.bot) return;
+
     if (!message.guild) return;
     const guildSettings = await getGuildSettings(message.member.guild.id);
     if (!guildSettings) {
         return;
     }
+
     const channelID = guildSettings.logChannelId;
     const channel = client.channels.cache.get(channelID);
-
-    if (!channelID) {
-        console.error(
-            "Log channel ID not found in guild settings:",
-            guildSettings
-        );
-        return;
+    if (guildSettings.Link === "scan") {
+        if (!linkc(message.content)) return;
+        if (!checkLinkSafety(findLinks(message.content))) {
+            message.delete();
+            const embed = new EmbedBuilder()
+                .setTitle("Phishing link detected")
+                .setColor(0x128afa)
+                .addFields(
+                    { name: "User", value: `${message.member}` },
+                    {
+                        name: "Time",
+                        value: `<t:${Math.floor(Date.now() / 1000)}:F>`,
+                    },
+                    { name: "Channel", value: `${message.channel}` },
+                    { name: "Content", value: `\`\`\`${message.content}\`\`\`` }
+                )
+                .setFooter({ text: "Powerd By Google Safe Browsing API" });
+            await channel.send({ embeds: [embed] });
+        }
     }
-
     if (guildSettings.Link === "discord") {
         if (
             message.content.includes("discord.gg/") ||
             message.content.includes("discord.com/invite/")
         ) {
-            await channel.send(
-                `${message.member}\n\`\`\`${message.content}\`\`\``
-            );
+            if (message.content.length >= 1000) {
+                const embed = createEmbedWithLinks(message);
+                if (embed) {
+                    await channel.send({ embeds: [embed] });
+                    message.delete();
+                    return;
+                }
+            }
+            const embed = new EmbedBuilder()
+                .setColor(0x128afa)
+                .setTitle(`Link posting has been blocked`)
+                .addFields(
+                    { name: "User", value: `${message.member}` },
+                    {
+                        name: "Time",
+                        value: `<t:${Math.floor(Date.now() / 1000)}:F>`,
+                    },
+                    { name: "Channel", value: `${message.channel}` },
+                    { name: "Content", value: `\`\`\`${message.content}\`\`\`` }
+                )
+                .setTimestamp();
+
+            await channel.send({ embeds: [embed] });
             message.delete();
 
             return;
@@ -2436,19 +2827,107 @@ client.on("messageCreate", async (message) => {
             message.content.includes("discord.gg/") ||
             message.content.includes("discord.com/invite/")
         ) {
-            await channel.send(
-                `${message.member}\n\`\`\`${message.content}\`\`\``
-            );
+            if (message.content.length >= 1000) {
+                const embed = createEmbedWithLinks(message);
+                if (embed) {
+                    await channel.send({ embeds: [embed] });
+                    message.delete();
+                    return;
+                }
+            }
+            const embed = new EmbedBuilder()
+                .setColor(0x128afa)
+                .setTitle(`Link posting has been blocked`)
+                .addFields(
+                    { name: "User", value: `${message.member}` },
+                    {
+                        name: "Time",
+                        value: `<t:${Math.floor(Date.now() / 1000)}:F>`,
+                    },
+                    { name: "Channel", value: `${message.channel}` },
+                    { name: "Content", value: `\`\`\`${message.content}\`\`\`` }
+                );
+            await channel.send({ embeds: [embed] });
             message.delete();
 
             return;
         }
     }
+    if (guildSettings.spamming === "on") {
+        const userId = message.author.id;
+
+        // 사용자의 도배 상태 확인
+        if (spamUsers.has(userId)) {
+            const userData = spamUsers.get(userId);
+
+            // 이전 도배 메시지와 현재 메시지의 간격 확인
+            const timeDiff =
+                message.createdTimestamp - userData.lastMessageTimestamp;
+
+            if (timeDiff < SPAM_INTERVAL) {
+                // 도배로 판단되면 카운트 증가
+                userData.spamCount++;
+            } else {
+                // 일정 시간이 지나면 카운트 초기화
+                userData.spamCount = 1;
+            }
+
+            if (userData.spamCount >= SPAM_THRESHOLD) {
+                spamUsers.set(userId, {
+                    spamCount: 1,
+                    lastMessageTimestamp: message.createdTimestamp,
+                });
+                message.guild.members.fetch(userId).then((user) => {
+                    user.timeout(MUTE_DURATION, "Spamming")
+                        .then(() => {
+                            const embed = new EmbedBuilder()
+                                .setColor(0x128afa)
+                                .setTitle(
+                                    `Chat will be blocked for a certain period of time due to spamming.`
+                                );
+                            message.channel.send({
+                                content: `${message.author}`,
+                                embeds: [embed],
+                            });
+                        })
+                        .catch(console.error);
+                });
+
+                const channelID = guildSettings.logChannelId;
+                const channel = client.channels.cache.get(channelID);
+                const embed = new EmbedBuilder()
+                    .setColor(0x128afa)
+                    .setTitle(`Spamming has been blocked`)
+                    .addFields(
+                        { name: "User", value: `${message.member}` },
+                        {
+                            name: "Time",
+                            value: `<t:${Math.floor(Date.now() / 1000)}:F>`,
+                        },
+                        { name: "Channel", value: `${message.channel}` }
+                    );
+                await channel.send({ embeds: [embed] });
+            }
+        } else {
+            // 사용자의 도배 상태가 없으면 초기화
+            spamUsers.set(userId, {
+                spamCount: 1,
+                lastMessageTimestamp: message.createdTimestamp,
+            });
+        }
+    }
 });
 
-client.login(token).catch((error) => {
-    errorlog("Login fail ", error.message);
-});
+client
+    .login(token)
+    .catch((error) => {
+        errorlog("Login fail ", error.message);
+    })
+    .then(() => {
+        const endTime = moment();
+        const loginTime = moment.duration(endTime.diff(startTime)).asSeconds();
+        infochannel(`Login successful. Took ${loginTime} seconds.`);
+    });
 function checkPermissions(interaction) {
     if (
         !interaction.member.permissions.has([
@@ -2465,8 +2944,16 @@ function checkPermissions(interaction) {
         ) {
             return true;
         } else {
+            const language = interaction.locale;
+            const embed = new EmbedBuilder()
+                .setColor(0xff0000)
+                .setTitle(
+                    language === "ko"
+                        ? "이 명령어를 실행할 권한이 부족합니다"
+                        : "You don't have permission."
+                );
             interaction.reply({
-                content: "You do not have permission.",
+                embeds: [embed],
                 ephemeral: true,
             });
             return false;
@@ -2490,8 +2977,17 @@ function checkOwners(interaction) {
     if (adminsid.includes(interaction.member.id)) {
         return true;
     } else {
+        const language = interaction.locale;
+        const embed = new EmbedBuilder()
+            .setColor(0xff0000)
+            .setTitle(
+                language === "ko"
+                    ? "이 명령어를 실행할 권한이 부족합니다"
+                    : "You don't have permission."
+            );
         interaction.reply({
-            content: "You do not have permission.",
+            embeds: [embed],
+            ephemeral: true,
         });
         return false;
     }
@@ -2514,6 +3010,11 @@ const guildSettingsSchema = new mongoose.Schema({
     spamming: String,
     changeH: String,
     deleteH: String,
+    verify: String,
+    verifylimit: Number,
+    verifyrole: String,
+    verifyaction: String,
+    verifytype: String,
 });
 const blacklistUserSchema = new mongoose.Schema({
     userId: String,
@@ -2589,7 +3090,6 @@ async function removeUserFromBlacklist(userId) {
     if (!blacklistEntry) {
         return;
     }
-
     await blacklistEntry.deleteOne();
 }
 
@@ -2605,11 +3105,7 @@ async function removeServerFromBlacklist(serverId) {
 }
 
 const GuildSettings = mongoose.model("GuildSettings", guildSettingsSchema);
-/**
- *
- * @param {*} guildId
- * @returns
- */
+
 const getGuildSettings = async (guildId) => {
     return await GuildSettings.findOne({ guildId: guildId });
 };
@@ -2629,6 +3125,11 @@ function getLastModifiedDate(file) {
  * @param {string} spamming
  * @param {string} changeH
  * @param {string} deleteH
+ * @param {string} verify: String,
+ * @param {number} verifylimit: Number,
+ * @param {string} verifyrole: String,
+ * @param {string} verifyaction: String,
+ * @param {string} verifytype: String,
  * @returns
  */
 const updateGuildSettings = async (
@@ -2641,7 +3142,12 @@ const updateGuildSettings = async (
     Link,
     spamming,
     changeH,
-    deleteH
+    deleteH,
+    verify,
+    verifylimit,
+    verifyrole,
+    verifyaction,
+    verifytype
 ) => {
     let previousSettings = await getGuildSettings(guildId);
 
@@ -2667,6 +3173,19 @@ const updateGuildSettings = async (
             changeH ?? (previousSettings ? previousSettings.changeH : null),
         deleteH:
             deleteH ?? (previousSettings ? previousSettings.deleteH : null),
+        verify: verify ?? (previousSettings ? previousSettings.verify : null),
+        verifylimit:
+            verifylimit ??
+            (previousSettings ? previousSettings.verifylimit : null),
+        verifyrole:
+            verifyrole ??
+            (previousSettings ? previousSettings.verifyrole : null),
+        verifyaction:
+            verifyaction ??
+            (previousSettings ? previousSettings.verifyaction : null),
+        verifytype:
+            verifytype ??
+            (previousSettings ? previousSettings.verifytype : null),
     };
 
     return await GuildSettings.findOneAndUpdate(
@@ -2724,10 +3243,10 @@ const parseDuration = (durationString) => {
 
     const durationMap = new Map([
         ["y", 365 * 24 * 60 * 60 * 1000],
-        ["d", 24 * 60 * 60 * 1000], 
-        ["h", 60 * 60 * 1000], 
-        ["m", 60 * 1000], 
-        ["s", 1000], 
+        ["d", 24 * 60 * 60 * 1000],
+        ["h", 60 * 60 * 1000],
+        ["m", 60 * 1000],
+        ["s", 1000],
     ]);
 
     let totalDuration = 0;
@@ -2741,3 +3260,127 @@ const parseDuration = (durationString) => {
 
     return totalDuration;
 };
+async function guildnull(interaction) {
+    const language = interaction.locale;
+    const embed = new EmbedBuilder()
+        .setColor(0xff0000)
+        .setTitle(`Server settings not found`)
+        .setDescription(
+            language === "ko"
+                ? "서버 설정을 찾을 수 없습니다. 먼저 로그 채널을 설정하십시오.\n</management setup:1224629739877306430>"
+                : "Server settings not found. Please set up the log channel first.\n</management setup:1224629739877306430>"
+        );
+    await interaction.reply({ embeds: [embed] });
+}
+
+async function guildnull1(interaction) {
+    const language = interaction.locale;
+    const embed = new EmbedBuilder()
+        .setColor(0xff0000)
+        .setTitle(`Server settings not found`)
+        .setDescription(
+            language === "ko"
+                ? "서버 설정을 찾을 수 없습니다. 먼저 로그 채널을 설정하십시오.\n</management verification_setup:1224629739877306430>"
+                : "Server settings not found. Please set up the log channel first.\n</management verification_setup:1224629739877306430>"
+        );
+    await interaction.reply({
+        embeds: [embed],
+    });
+}
+function getSurroundingText(content, position, length) {
+    const start = Math.max(position - 5, 0);
+    const end = Math.min(position + length + 5, content.length);
+    return content.substring(start, end);
+}
+function createEmbedWithLinks(message) {
+    const content = message.content;
+    const links = findLinks(content);
+    if (!links) return;
+
+    const embed = new EmbedBuilder()
+        .setColor(0x128afa)
+        .setTitle(`Link posting has been blocked`)
+        .addFields(
+            { name: "User", value: `${message.member}` },
+            {
+                name: "Time",
+                value: `<t:${Math.floor(Date.now() / 1000)}:F>`,
+            }, //
+            { name: "Channel", value: `${message.channel}` }
+        );
+    links.forEach((link) => {
+        embed.addFields({
+            name: "Content",
+            value: `\`\`\`${link}\`\`\``,
+        });
+    });
+    embed.setTimestamp();
+    return embed;
+}
+function findLinks(text) {
+    const regex = /https?:\/\/\S+/gi;
+    return text.match(regex);
+}
+
+async function checkLinkSafety(urlToCheck) {
+    try {
+        const response = await fetch(
+            `https://safebrowsing.googleapis.com/v4/threatMatches:find?key=${SafeBrowsingAPI_Key}`,
+            {
+                method: "POST",
+                body: JSON.stringify({
+                    client: {
+                        clientId: "teamspamblocker",
+                        clientVersion: "1.0.0",
+                    },
+                    threatInfo: {
+                        threatTypes: [
+                            "MALWARE",
+                            "SOCIAL_ENGINEERING",
+                            "UNWANTED_SOFTWARE",
+                            "POTENTIALLY_HARMFUL_APPLICATION",
+                        ],
+                        platformTypes: ["ANY_PLATFORM"],
+                        threatEntryTypes: ["URL"],
+                        threatEntries: [{ url: urlToCheck }],
+                    },
+                }),
+                headers: {
+                    "Content-Type": "application/json",
+                },
+            }
+        );
+        const data = await response.json();
+        if (data.matches && data.matches.length > 0) {
+            console.log("Unsafe link detected:", data.matches);
+            return false;
+        } else {
+            return true;
+        }
+    } catch (error) {
+        return false;
+    }
+}
+function captchagenerat() {
+    const options = { height: 200, width: 600 };
+    const text = generateRandomString(6);
+    const captcha = new CaptchaGenerator(options)
+        .setDimension(150, 450)
+        .setCaptcha({ text: text, size: 60, color: "deeppink" })
+        .setDecoy({ opacity: 0.5 })
+        .setTrace({ color: "deeppink" });
+    const buffer = captcha.generateSync();
+    fs.writeFileSync(`${text}.png`, buffer);
+    return `${text}.png`;
+}
+function generateRandomString(length) {
+    const characters =
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+    let result = "";
+    for (let i = 0; i < length; i++) {
+        result += characters.charAt(
+            Math.floor(Math.random() * characters.length)
+        );
+    }
+    return result;
+}
