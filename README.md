@@ -9,3 +9,6 @@ Support server:
 
 https://discord.gg/HwyX7rxjKE
 
+Korea discord list:
+
+https://koreanbots.dev/bots/1195649127489478676
