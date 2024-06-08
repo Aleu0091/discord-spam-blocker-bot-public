@@ -1,6 +1,6 @@
-#  Discord Spam Blocker Bot
+# 🚫 Discord Spam Blocker Bot
 
-![License](https://img.shields.io/github/license/aleu0091/discord-spam-blocker-bot-public) ![Version](https://img.shields.io/github/package-json/v/aleu0091/discord-spam-blocker-bot-public) ![Stars](https://img.shields.io/github/stars/aleu0091/discord-spam-blocker-bot-public)
+![License](https://img.shields.io/github/license/aleu0091/discord-spam-blocker-bot-public) ![Stars](https://img.shields.io/github/stars/aleu0091/discord-spam-blocker-bot-public)
 
 Welcome to **Discord Spam Blocker Bot** - a powerful bot designed to keep your Discord server free from spam. Updates are released slowly.
 
@@ -9,7 +9,6 @@ Welcome to **Discord Spam Blocker Bot** - a powerful bot designed to keep your D
 - [Features](#features)
 - [Installation](#installation)
 - [Usage](#usage)
-- [Commands](#commands)
 - [Support](#support)
 - [Contributing](#contributing)
 - [License](#license)
@@ -33,7 +32,7 @@ To get a local copy up and running, follow these simple steps.
 ### Clone the repository
 
 ```sh
-git clone https://github.com/aleu0091/discord-spam-blocker-bot-public.git
+git clone https://github.com/yourusername/discord-spam-blocker-bot-public.git
 cd discord-spam-blocker-bot-public
 ```
 
@@ -43,13 +42,32 @@ cd discord-spam-blocker-bot-public
 npm install
 ```
 
-### Setting up environment variables
+### Setting up configuration
 
-Create a `.env` file in the root directory and add your bot token and other necessary configuration:
+Create a `config.json` file in the root directory and add your bot token and other necessary configuration:
 
-```
-DISCORD_TOKEN=your_bot_token_here
-PREFIX=your_prefix_here
+```json
+{
+    "mongodb": "your_mongodb_url",
+    "token": "your_bot_token",
+    "clientid": "your_client_id",
+    "botId": "your_bot_id",
+    "errorchannelid": "your_errorlogchannel_id",
+    "logchannelid": "your_logchannel_id",
+    "version": "1.0.0",
+    "adminsid": [
+        "admin1_Id",
+        "admin2_Id",
+        "admin3_Id"
+    ],
+    "githubtoken": "your_github_token",
+    "repository": "TeamSPAM/Discord_Spam_Bot",
+    "branch": "main",
+    "debugmode": false,
+    "SafeBrowsingAPI_Key": "your_SafeBrowsingAPI_key",
+    "since": "2024/01/05",
+}
+
 ```
 
 ## 🛠 Usage
@@ -61,18 +79,6 @@ node index.js
 ```
 
 Your bot should now be online and running!
-
-## 📜 Commands
-
-Here are some of the main commands available in **Discord Spam Blocker Bot**:
-
-- `!block @user` - Blocks the mentioned user.
-- `!unblock @user` - Unblocks the mentioned user.
-- `!spamfilter add <keyword>` - Adds a keyword to the spam filter.
-- `!spamfilter remove <keyword>` - Removes a keyword from the spam filter.
-- `!settings` - Displays the current bot settings.
-
-_For a full list of commands, type `!help` in your Discord server._
 
 ## 🌐 Invite & Support
 
@@ -93,3 +99,4 @@ Contributions are what make the open-source community such an amazing place to l
 ## 📄 License
 
 Distributed under the MIT License. See `LICENSE` for more information.
+
